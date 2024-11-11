@@ -1,0 +1,488 @@
+
+// 全局變數，控制是否打印貴賓標籤，日誌印出
+var enableVIPLabelPrint = true; // 設置為 true 以打印貴賓標籤，設置為 false 則不打印
+var enableLogging = true; // 設置為 true 以啟用日誌，false 以禁用日誌
+// 日誌紀錄函數
+function logMessage(message) {
+  if (enableLogging) {
+    Logger.log(message);
+  }
+}
+
+//1109
+function doGet(e) { 
+  var template = HtmlService.createTemplateFromFile('Index');
+  template.activities = getActivities();
+  template.reportSummary = getReportSummary(); // 傳遞統計結果
+  return template.evaluate();
+}
+function testCheckIn() {
+  const result =isToday('普平-活動1107_3');
+  logMessage(result);
+}
+
+function checkIn(name, activity) {
+  if (!name || !activity) {
+    logMessage('Invalid name or activity provided for check-in.');
+    return '無效的姓名或活動';
+  }
+
+  // 使用 lookupUserName() 查找正確的名字
+  const lookupResult = lookupUserName(name);
+  const originalName = lookupResult.originalName;
+  const matchedName = lookupResult.matchedName || originalName;
+
+  if (!matchedName) {
+    logMessage('Invalid name after lookup.');
+    return '無效的姓名';
+  }
+
+  logMessage('Checking in: Original Name = ' + originalName + ', Matched Name = ' + matchedName + ', Activity = ' + activity);
+
+  // 檢查活動是否存在
+  var activitySheet = getSheetByName(activity.trim());
+  if (!activitySheet) {
+    logMessage('Activity does not exist: ' + activity);
+    return '活動不存在';
+  }
+
+  // 獲取活動日期並進行檢查
+  var activityDate = getActivityDate(activity);
+  if (!activityDate) {
+    logMessage('活動日期無效: ' + activity);
+    return '活動日期無法確認';
+  }
+
+  // 如果活動日期不是今天，拒絕報名
+  if (!isToday(activityDate)) {
+    logMessage('Activity is not available today: ' + activity);
+    return '今日不可報名，請於活動當天進行報名。';
+  }
+
+  // 報到表的處理以及後續邏輯
+  var reportSheet = getSheetByName('報到表');
+  if (!reportSheet) {
+    logMessage('Report sheet does not exist.');
+    return '報到表不存在';
+  }
+  var reportData = reportSheet.getDataRange().getValues();
+
+  // 檢查報到表是否已有報到記錄
+  if (hasCheckedIn(reportData, originalName, activity)) {
+    logMessage('User already checked in: ' + matchedName);
+    return `已經報到過：${matchedName}\n活動：${activity}`;
+  }
+
+  // 獲取活動表中的數據
+  var activityData = activitySheet.getDataRange().getValues();
+  var userInfo = getUserInfo(activityData, matchedName);
+
+  // 如果未找到用戶信息，返回提示是否要當場報名
+  if (!userInfo || !userInfo.userIdentity) {
+    logMessage('User not registered: ' + matchedName);
+    return '未報名，是否要當場報名？';
+  }
+
+  // 如果找到用戶信息，則進行報到
+  var userIdentity = userInfo.userIdentity;
+  var userSeatNumber = userInfo.userSeatNumber;
+
+  // 寫入報到表
+  var time = new Date();
+  reportSheet.appendRow([originalName, matchedName, userIdentity, activity, time]);
+  logMessage('Check-in successful: Original Name = ' + originalName + ', Matched Name = ' + matchedName + ', Activity: ' + activity + ', Time: ' + time.toLocaleString());
+
+  // 同步更新活動表的狀態，標註為「已報到」
+  for (var i = 1; i < activityData.length; i++) {
+    var rowOriginalName = activityData[i][0] ? activityData[i][0].toString().trim() : '';
+    var rowMatchedName = activityData[i][1] ? activityData[i][1].toString().trim() : '';
+    if (rowOriginalName === originalName || rowMatchedName === matchedName) {
+      activitySheet.getRange(i + 1, 6).setValue('已報到');
+      logMessage('Updated activity sheet: ' + matchedName + ' marked as checked in.');
+      break;
+    }
+  }
+  // 更新统计数据
+  updateCheckInCounts(activity);
+  // 返回報到成功的訊息
+  var feedbackMessage =
+    `報到成功：${matchedName}\n身份：${userIdentity}\n活動：${activity}\n時間：${time.toLocaleString()}`;
+
+  // 打印貴賓標籤（可選）
+  if (userIdentity === '貴賓' && enableVIPLabelPrint) {
+    printLabel(matchedName, userIdentity, activity, userSeatNumber);
+  }
+
+  return feedbackMessage;
+}
+
+
+function register(name, activity) {
+  if (!name || !activity) {
+    logMessage('Invalid name or activity provided for registration.');
+    return '無效的姓名或活動';
+  }
+
+  // 使用 lookupUserName() 查找正確的名字
+  const lookupResult = lookupUserName(name);
+  const originalName = lookupResult.originalName;
+  const matchedName = lookupResult.matchedName || originalName;
+
+  if (!matchedName) {
+    logMessage('Invalid name after lookup.');
+    return '無效的姓名';
+  }
+
+  logMessage('Registering: Original Name = ' + originalName + ', Matched Name = ' + matchedName + ', Activity = ' + activity);
+
+  // 檢查活動是否存在
+  var activitySheet = getSheetByName(activity.trim());
+  if (!activitySheet) {
+    logMessage('Activity does not exist: ' + activity);
+    return '活動不存在';
+  }
+
+  // 獲取活動日期並進行檢查
+  var activityDate = getActivityDate(activity);
+  if (!activityDate) {
+    logMessage('活動日期無效: ' + activity);
+    return '活動日期無法確認';
+  }
+
+  // 如果活動日期不是今天，拒絕報名
+  if (!isToday(activityDate)) {
+    logMessage('Activity is not available today: ' + activity);
+    return '今日不可報名，請於活動當天進行報名。';
+  }
+
+  // 報到表的處理以及後續邏輯
+  var reportSheet = getSheetByName('報到表');
+  if (!reportSheet) {
+    logMessage('Report sheet does not exist.');
+    return '報到表不存在';
+  }
+  var reportData = reportSheet.getDataRange().getValues();
+
+  // 檢查是否已經報名並報到過
+  if (hasCheckedIn(reportData, originalName, activity)) {
+    logMessage('User already registered and checked in: ' + matchedName);
+    return `已經報名並報到過：${matchedName}\n活動：${activity}`;
+  }
+
+  // 將使用者報名到活動
+  var userIdentity = '信眾'; // 預設身份
+  activitySheet.appendRow([originalName, matchedName, userIdentity, activity, '無座位']);
+  logMessage('Registration successful: ' + matchedName + ', Activity: ' + activity);
+
+  // 將報到資料添加到報到表中
+  var time = new Date();
+  reportSheet.appendRow([originalName, matchedName, userIdentity, activity, time]);
+  logMessage('Check-in after registration successful: Original Name = ' + originalName + ', Matched Name = ' + matchedName + ', Activity: ' + activity + ', Time: ' + time.toLocaleString());
+
+  // 在活動表中更新報名狀態
+  var activityData = activitySheet.getDataRange().getValues();
+  for (let i = 1; i < activityData.length; i++) { // 從第二行開始，跳過標題行
+    const rowOriginalName = activityData[i][0].toString().trim();
+    if (rowOriginalName === originalName) {
+      activitySheet.getRange(i + 1, 6).setValue('已報到');
+      logMessage(`Successfully updated registration status for ${originalName} in activity sheet.`);
+      break;
+    }
+  }
+
+  // 如果身份是貴賓則打印標籤
+  if (userIdentity === '貴賓' && enableVIPLabelPrint) {
+    printLabel(matchedName, userIdentity, activity, null);
+  }
+  // 更新统计数据
+  updateCheckInCounts(activity);
+  return `報名並報到成功：${matchedName}\n身份：${userIdentity}\n活動：${activity}\n時間：${time.toLocaleString()}`;
+}
+
+function getSheetByName(name) {
+  const spreadsheetId = '17HjdsZS5yurHO6HQjckR6lrP9i8qDvJqAHOjWhRaloc'; // 新的試算表 ID
+  const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+  return spreadsheet.getSheetByName(name);
+}
+
+function hasCheckedIn(reportData, name, activity) {
+  if (!reportData || !Array.isArray(reportData)) {
+    logMessage('Invalid report data.');
+    return false;
+  }
+
+  // 確保名稱和活動名稱去除空格並轉換為小寫
+  const trimmedName = name.trim().toLowerCase();
+  const trimmedActivity = activity.trim().toLowerCase();
+
+  for (var i = 1; i < reportData.length; i++) {
+    const reportName = reportData[i][0] ? reportData[i][0].toString().trim().toLowerCase() : '';
+    const reportActivity = reportData[i][3] ? reportData[i][3].toString().trim().toLowerCase() : '';
+
+    if (reportName === trimmedName && reportActivity === trimmedActivity) {
+      return true; // 找到相同的報名記錄，表示已報到
+    }
+  }
+
+  return false; // 沒有找到相符的報名記錄
+}
+
+function getUserInfo(data, name) {
+  if (!data || !Array.isArray(data)) {
+    Logger.log('Invalid participant data.');
+    return { userIdentity: null, userSeatNumber: null };
+  }
+
+  name = name.trim().toLowerCase(); // 確保名稱去掉空格並轉為小寫
+
+  for (var i = 1; i < data.length; i++) { // 從第2行開始，因為第1行通常是標題
+    var originalName = data[i][0] ? data[i][0].toString().trim().toLowerCase() : '';
+    var matchedName = data[i][1] ? data[i][1].toString().trim().toLowerCase() : '';
+
+    if (originalName === name || matchedName === name) {
+      return {
+        userIdentity: data[i][2] ? data[i][2].toString().trim() : null,
+        userSeatNumber: data[i][4] ? data[i][4].toString().trim() : null
+      };
+    }
+  }
+
+  // 如果找不到匹配的名字，返回預設物件
+  return { userIdentity: null, userSeatNumber: null };
+}
+
+function getActivityDate(activityName) {
+  if (!activityName || typeof activityName !== 'string' || activityName.trim() === '') {
+    logMessage('Invalid activity name provided: ' + activityName);
+    return null;
+  }
+
+  var sheet = getSheetByName('活動日期表');
+  if (!sheet) {
+    logMessage('活動日期表不存在');
+    return null;
+  }
+
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    var activityCell = data[i][0];
+    if (typeof activityCell !== 'string') {
+      logMessage('Skipping non-string activity name at row ' + (i + 1));
+      continue;
+    }
+
+    // 消除空格和隱藏字符
+    var activityNameFromSheet = activityCell.replace(/\s+/g, '').trim();
+    var inputActivityName = activityName.replace(/\s+/g, '').trim();
+
+    // 調試信息：打印試算表中的活動名稱
+    logMessage('Checking activity: ' + activityNameFromSheet + ' against input: ' + inputActivityName);
+
+    // 忽略大小寫進行比較
+    if (activityNameFromSheet.toLowerCase() === inputActivityName.toLowerCase()) {
+      logMessage('Matched activity: ' + activityName + ', Date: ' + data[i][1]);
+
+      var rawDate = data[i][1];
+      var startTime = data[i][2];
+      var endTime = data[i][3];
+
+      // 檢查日期是否為有效的日期對象
+      if (!(rawDate instanceof Date)) {
+        logMessage('Invalid date format at row ' + (i + 1) + ': ' + rawDate);
+        continue;
+      }
+
+      // 確認開始時間和結束時間存在
+      if (!startTime || !endTime) {
+        logMessage('Missing start or end time at row ' + (i + 1));
+        continue;
+      }
+
+      // 返回日期和時間信息
+      return {
+        date: new Date(rawDate.getFullYear(), rawDate.getMonth(), rawDate.getDate()),
+        startTime: startTime,
+        endTime: endTime
+      };
+    }
+  }
+
+  logMessage('活動名稱未找到: ' + activityName);
+  return null;
+}
+
+
+function isToday(activityDateObj) {
+  if (!activityDateObj || !(activityDateObj.date instanceof Date)) {
+    logMessage('Invalid activity date provided.');
+    return false;
+  }
+
+  var today = new Date();
+  var todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  var activityDay = new Date(activityDateObj.date.getFullYear(), activityDateObj.date.getMonth(), activityDateObj.date.getDate());
+
+  // 確認活動日期是否是今天
+  if (todayDate.getTime() !== activityDay.getTime()) {
+    return false;
+  }
+
+  // 解析當前時間、開始時間和結束時間
+  var currentTime = today.getHours() * 60 + today.getMinutes();
+  var startTimeParts = activityDateObj.startTime.split(':');
+  var endTimeParts = activityDateObj.endTime.split(':');
+
+  var startTime = parseInt(startTimeParts[0]) * 60 + parseInt(startTimeParts[1]);
+  var endTime = parseInt(endTimeParts[0]) * 60 + parseInt(endTimeParts[1]);
+
+  logMessage(`Checking current time: ${today.getHours()}:${today.getMinutes()}, start time: ${activityDateObj.startTime}, end time: ${activityDateObj.endTime}`);
+
+  if (currentTime >= startTime && currentTime <= endTime) {
+    return true;
+  } else {
+    logMessage('Current time is not within the activity time range.');
+    return false;
+  }
+}
+
+
+function printLabel(name, identity, activity, seatNumber) {
+  var labelContent = `活動名稱: ${activity}\n姓名: ${name}\n`;
+  if (seatNumber) {
+    labelContent += `座位 1: ${seatNumber}\n座位 2: ${seatNumber}`;
+  } else {
+    labelContent += `座位 1: 無\n座位 2: 無`;
+  }
+
+  try {
+    labelPrinter.print(labelContent);
+    logMessage('Label printed successfully for: ' + name);
+  } catch (e) {
+    logMessage('Print failed: ' + e.message);
+  }
+}
+
+function lookupUserName(name) {
+  if (!name) {
+    logMessage('Invalid name provided for lookup.');
+    return { originalName: name, matchedName: name }; // 返回原始名字
+  }
+
+  const sheetId = '19R8HwlA3gNougTT-3WnnZSiHATPTUu1wVcNrwoCLIF8';
+  const ss = SpreadsheetApp.openById(sheetId);
+  const sheet = ss.getSheetByName('puping_person');
+  const range = sheet.getRange(1, 1, sheet.getLastRow(), 1);
+  const cell = range.createTextFinder(name).matchEntireCell(true).findNext();
+
+  if (cell) {
+    const row = cell.getRow();
+    const userInfo = sheet.getRange(row, 2).getValue();
+    logMessage('User found: ' + name + ', Info: ' + userInfo);
+    return { originalName: name, matchedName: userInfo };
+  } else {
+    logMessage('User not found: ' + name);
+    return { originalName: name, matchedName: name }; // 找不到時返回原始名字
+  }
+}
+
+
+function getActivities() {
+  const spreadsheetId = '17HjdsZS5yurHO6HQjckR6lrP9i8qDvJqAHOjWhRaloc'; // 新的試算表 ID
+  const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+  var sheets = spreadsheet.getSheets();
+  var activities = [];
+  sheets.forEach(function(sheet) {
+    if (sheet.getName().startsWith('普平-')) {
+      activities.push(sheet.getName());
+    }
+  });
+  return activities;
+}
+
+function getReportSummary(activity) {
+  const reportSheet = getSheetByName('報到表');
+  if (!reportSheet) {
+    logMessage('Report sheet does not exist.');
+    return null;
+  }
+
+  const activitySheet = getSheetByName(activity);
+  if (!activitySheet) {
+    logMessage('Activity sheet does not exist.');
+    return null;
+  }
+
+  const reportData = reportSheet.getDataRange().getValues();
+  const activityData = activitySheet.getDataRange().getValues();
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0); // 設定為當天開始
+
+  let total = 0; // 今日實際報到人數
+  let vipCount = 0;
+  let believerCount = 0;
+  let volunteerCount = 0;
+
+  // 計算活動應到人數（不包括標題行）
+  const expectedCount = activityData.length - 1;
+
+  // 從報到表中計算今日報到人數
+  for (let i = 1; i < reportData.length; i++) {
+    const checkInDate = new Date(reportData[i][4]); // 假設時間在第5列
+    checkInDate.setHours(0, 0, 0, 0);
+
+    if (checkInDate.getTime() === today.getTime() && reportData[i][3] === activity) {
+      total++;
+      const identity = reportData[i][2]; // 假設身份在第3列
+      if (identity === '貴賓') {
+        vipCount++;
+      } else if (identity === '信眾') {
+        believerCount++;
+      } else if (identity === '義工') {
+        volunteerCount++;
+      }
+    }
+  }
+
+  return {
+    total: total,
+    vip: vipCount,
+    believer: believerCount,
+    volunteer: volunteerCount,
+    expected: expectedCount
+  };
+}
+
+function updateCheckInCounts(activity) {
+  var activitySheet = getSheetByName(activity.trim());
+  if (!activitySheet) {
+    logMessage('Activity sheet does not exist for updating counts: ' + activity);
+    return;
+  }
+
+  var activityData = activitySheet.getDataRange().getValues();
+  var total = 0;
+  var vipCount = 0;
+  var believerCount = 0;
+  var volunteerCount = 0;
+  var shouldAttend = activityData.length - 1; // 總人數減去標題行
+
+  for (var i = 1; i < activityData.length; i++) { // 跳過標題行
+    const identity = activityData[i][2];
+    if (identity) {
+      total++;
+      if (identity === '貴賓') {
+        vipCount++;
+      } else if (identity === '信眾') {
+        believerCount++;
+      } else if (identity === '義工') {
+        volunteerCount++;
+      }
+    }
+  }
+
+  logMessage(`更新活動 ${activity} 的統計數據: 應到人數=${shouldAttend}, 總報到人數=${total}, 貴賓=${vipCount}, 信眾=${believerCount}, 義工=${volunteerCount}`);
+}
+
+
+

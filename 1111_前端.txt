@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <base target="_top">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.9.3/css/bulma.min.css">
+  <style>
+    body {
+      font-family: 'Arial', sans-serif;
+      background-color: #f5f5f5;
+      padding: 20px;
+    }
+    .container {
+      width: 100%;
+      max-width: 600px;
+      margin: auto;
+      padding: 20px;
+      background-color: white;
+      border-radius: 10px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+      position: relative;
+      margin-top: 60px;
+    }
+    h1 {
+      text-align: center;
+      color: #4a4a4a;
+      margin-bottom: 40px;
+      font-size: 3em; /* 放大標題文字大小 */
+    }
+    #checkInForm label {
+      font-weight: bold;
+      font-size: 1.2em; /* 增加標籤文字大小 */
+    }
+    #checkInForm input[type="text"],
+    #checkInForm select {
+      margin-top: 5px;
+      margin-bottom: 20px;
+      width: 100%;
+      padding: 15px;
+      font-size: 1.2em; /* 增加輸入框和選擇框的文字大小 */
+      border: 1px solid #dbdbdb;
+      border-radius: 5px;
+      box-sizing: border-box;
+    }
+    #checkInForm input[type="button"] {
+      width: 100%;
+      padding: 10px;
+      background-color: #3273dc;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 1.2em; /* 增加按鈕文字大小 */
+    }
+    #checkInForm input[type="button"]:hover {
+      background-color: #276cda;
+    }
+    #result {
+      margin-top: 20px;
+      padding: 20px;
+      font-size: 1.2em;
+      background-color: #f5f5f5;
+      border-radius: 5px;
+      text-align: center;
+    }
+    .time-container {
+      text-align: right;
+      font-size: 1em;
+      color: #4a4a4a;
+      margin-bottom: 10px;
+    }
+    .count-container {
+      text-align: left;
+      font-size: 1em;
+      color: #4a4a4a;
+      margin-bottom: 20px;
+    }
+    @media screen and (max-width: 768px) {
+      .container {
+        padding: 15px;
+      }
+      h1 {
+        font-size: 2em;
+      }
+      #checkInForm input[type="text"],
+      #checkInForm select,
+      #checkInForm input[type="button"] {
+        font-size: 1em;
+      }
+      #result {
+        font-size: 1em;
+      }
+      .time-container,
+      .count-container {
+        text-align: center;
+        font-size: 1em;
+        margin-bottom: 10px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>普平精舍活動刷卡</h1>
+    <div class="time-container">
+      <div id="currentTime">時間載入中...</div>
+    </div>
+    <div class="count-container">
+      <div id="activityTitle">活動名稱載入中...</div>
+      <div id="totalCount">總報到人數載入中...</div>
+      <div id="expectedCount">應到人數載入中...</div>
+      <div id="vipCount">貴賓人數載入中...</div>
+      <div id="believerCount">信眾人數載入中...</div>
+      <div id="volunteerCount">義工人數載入中...</div>
+    </div>
+    <form id="checkInForm" onsubmit="return false;" autocomplete="off">
+      <label for="name" id="nameLabel">姓名:</label>
+      <input type="text" id="name" name="name" pattern="[一-龥a-zA-Z0-9]+" required aria-labelledby="nameLabel">
+      <label for="activity" id="activityLabel">活動:</label>
+      <select id="activity" name="activity" required aria-labelledby="activityLabel">
+        <!-- 活動選項將通過 JavaScript 動態生成 -->
+      </select>
+      <input type="button" value="刷卡" onclick="flag=false;checkIn()" aria-label="點擊此按鈕完成刷卡簽到">
+    </form>
+    <div id="result"></div>
+  </div>
+
+  <!-- 模態框彈窗 -->
+  <div class="modal" id="confirmationModal">
+    <div class="modal-background" onclick="closeModal()"></div>
+    <div class="modal-card">
+      <header class="modal-card-head">
+        <p class="modal-card-title">確認報名</p>
+        <button class="delete" aria-label="close" onclick="closeModal()"></button>
+      </header>
+      <section class="modal-card-body">
+        <p>您尚未報名此活動，是否立即報名並簽到？</p>
+      </section>
+      <footer class="modal-card-foot">
+        <button class="button is-success" id="confirmButton" onclick="confirmRegistration()">確認</button>
+        <button class="button" onclick="closeModal()">取消</button>
+      </footer>
+    </div>
+  </div>
+
+  <script>
+    window.isSubmitting = false;
+
+    // 更新當前時間
+    function updateTime() {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const seconds = String(now.getSeconds()).padStart(2, '0');
+      document.getElementById('currentTime').innerText = `${year}年${month}月${day}日 ${hours}:${minutes}:${seconds}`;
+    }
+
+    function updateCheckInCounts(activity = null) {
+  google.script.run.withSuccessHandler(function(counts) {
+    if (activity) {
+      document.getElementById('activityTitle').innerText = `${activity}`;
+    } else {
+      document.getElementById('activityTitle').innerText = `今日`;
+    }
+    document.getElementById('totalCount').innerText = `總報到人數：${counts.total}人`;
+    document.getElementById('vipCount').innerText = `貴賓人數：${counts.vip}人`;
+    document.getElementById('believerCount').innerText = `信眾人數：${counts.believer}人`;
+    document.getElementById('volunteerCount').innerText = `義工人數：${counts.volunteer}人`;
+    if (activity) {
+      document.getElementById('expectedCount').innerText = `應到人數：${counts.expected || 0}人`;
+    }
+  }).withFailureHandler(function(error) {
+    document.getElementById('totalCount').innerText = `總報到人數加載失敗：${error.message}`;
+    document.getElementById('vipCount').innerText = `貴賓人數加載失敗：${error.message}`;
+    document.getElementById('believerCount').innerText = `信眾人數加載失敗：${error.message}`;
+    document.getElementById('volunteerCount').innerText = `義工人數加載失敗：${error.message}`;
+    document.getElementById('expectedCount').innerText = `應到人數加載失敗：${error.message}`;
+  }).getReportSummary(activity);
+}
+
+
+    document.addEventListener('DOMContentLoaded', function() {
+      window.confirmationPrompted = false;
+      google.script.run.withSuccessHandler(function(activities) {
+        const activitySelect = document.getElementById('activity');
+        activities.forEach(function(activity) {
+          const option = document.createElement('option');
+          option.value = activity;
+          option.textContent = activity;
+          activitySelect.appendChild(option);
+        });
+      }).getActivities();
+
+      // 初始化時間和報到人數
+      updateTime();
+      updateCheckInCounts();
+
+      // 每秒更新當前時間
+      setInterval(updateTime, 1000);
+
+      // 條碼機輸入處理 - 當輸入框內容變化時自動提交表單，帶防抖動功能
+      document.getElementById('name').addEventListener('input', debounce(function() {
+        const name = document.getElementById('name').value;
+        // 檢查輸入是否非空並且字數達到某個最小值
+        if (name && name.length >= 2) {  // 您可以根據需要調整最小長度
+          checkIn();
+        }
+      }, 2000));
+    });
+
+    document.getElementById('checkInForm').addEventListener('keydown', function(event) {
+      window.confirmationPrompted = false;
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        flag = false;
+        checkIn();
+      }
+    });
+
+    function disableSubmitButton() {
+      document.querySelector('input[type="button"]').disabled = true;
+    }
+
+    function enableSubmitButton() {
+      document.querySelector('input[type="button"]').disabled = false;
+    }
+    var flag = false;
+
+    function checkIn() {
+  if (window.isSubmitting) return; // 防止重複提交
+  if (flag) return;
+
+  var name = document.getElementById('name').value;
+  document.getElementById('name').focus();
+  document.getElementById('name').select();
+
+  var activity = document.getElementById('activity').value;
+
+  if (!name || !activity) {
+    document.getElementById('result').innerText = '請填寫所有字段';
+    return;
+  }
+
+  disableSubmitButton(); // 禁用按鈕
+  window.isSubmitting = true; // 設置正在提交的標記
+
+  google.script.run.withSuccessHandler(function(response) {
+    enableSubmitButton(); // 啟用按鈕
+    window.isSubmitting = false; // 重置標記
+
+    if (response === '未報名，是否要當場報名？') {
+      // 顯示模態框而不是使用原本的 confirm()
+      showModal();
+    } else {
+      document.getElementById('result').innerText = response;
+      updateCheckInCounts(activity); // 成功簽到後更新報到人數
+    }
+  }).withFailureHandler(function(error) {
+    enableSubmitButton(); // 啟用按鈕
+    window.isSubmitting = false; // 重置標記
+    document.getElementById('result').innerText = '發生錯誤：' + error.message;
+  }).checkIn(name, activity);
+}
+
+    function showModal() {
+      const modal = document.getElementById('confirmationModal');
+      modal.classList.add('is-active');
+      document.getElementById('confirmButton').focus(); // 設置確認按鈕為焦點
+
+      // 在模態框中按下 Enter 鍵即可確認報名
+      document.addEventListener('keydown', function(event) {
+        if (event.key === 'Enter' && modal.classList.contains('is-active')) {
+          event.preventDefault();
+          confirmRegistration();
+        }
+      });
+    }
+
+    function closeModal() {
+      document.getElementById('confirmationModal').classList.remove('is-active');
+    }
+
+    function confirmRegistration() {
+      var name = document.getElementById('name').value;
+      var activity = document.getElementById('activity').value;
+
+      closeModal(); // 關閉模態框
+      google.script.run.withSuccessHandler(function(registerResponse) {
+        document.getElementById('result').innerText = registerResponse;
+        updateCheckInCounts(activity); // 成功報名後更新報到人數
+      }).register(name, activity);
+    }
+
+    // 防抖動函數定義
+    function debounce(func, wait) {
+      let timeout;
+      return function(...args) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(this, args), wait);
+      };
+    }
+  </script>
+</body>
+</html>
